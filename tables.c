@@ -110,21 +110,25 @@ inline void generate_mixcol_tab_row(int multipliers[], unsigned char idx)
 
 void generate_mixcol_tab(int inv)
 {
+	int *mc_multipliers;
 	int i, j, idx;
 
-	if (!inv)
+	if (!inv) {
 		printf("unsigned char *mixcol_tab[][16] = {\n");
-	else
+		mc_multipliers = mixcol_multipliers;
+	} else {
 		printf("unsigned char *inv_mixcol_tab[][16] = {\n");
+		mc_multipliers = inv_mixcol_multipliers;
+	}
 
 	for (i = 0; i < 16; i++) {
 		printf("\t\t{\n");
 		for (j = 0; j < 16; j += 2) {
 			idx = (i << 4) + j;
 			printf("\t\t\t");
-			generate_mixcol_tab_row(inv_mixcol_multipliers, idx);
+			generate_mixcol_tab_row(mc_multipliers, idx);
 			printf(", ");
-			generate_mixcol_tab_row(inv_mixcol_multipliers, idx + 1);
+			generate_mixcol_tab_row(mc_multipliers, idx + 1);
 			printf(",\n");
 		}
 		printf("\t\t},\n");
