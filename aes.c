@@ -829,36 +829,6 @@ void expand_key(_AES_KEY *key, void *_init_key, int bits)
 			mix_column(inv_mixcol_tab, inv_rd_key + (i * _AES_BLOCK_SIZE) + j);
 }
 
-void transform_round(uint8_t *state, int d,
-		uint8_t sb[][16], uint8_t *mc_tab[][16])
-{
-	uint8_t tmp[AES_NB];
-	int i, j, shift;
-
-	for (i = 1; i < 4; i++) {
-		shift = i;  /* Simplified for AES. */
-		if (d == -1)
-			shift = AES_NB - shift;
-
-		for (j = 0; j < shift; j++)
-			tmp[j] = state[(j << 2) + i];
-		for (; j < AES_NB; j++)
-			state[((j - shift) << 2) + i] = state[(j << 2) + i];
-		for (j = 0; j < shift; j++)
-			state[((AES_NB - shift + j) << 2) + i] = tmp[j];
-	}
-
-	if (!mc_tab) {
-		for (i = 0; i < _AES_BLOCK_SIZE; i++)
-			state[i] = sbox_lookup(sb, state[i]);
-	}
-
-	if (mc_tab) {
-		for (i = 0; i < AES_NB; i++)
-			mix_column(mc_tab, state + (i << 2));
-	}
-}
-
 inline void state_xor(uint8_t *state, uint8_t *rd_key)
 {
 	uint32_t *dest = (uint32_t *)state;
@@ -869,10 +839,41 @@ inline void state_xor(uint8_t *state, uint8_t *rd_key)
 		*dest++ ^= *src++;
 }
 
+void transform_round(uint8_t *new_st, uint8_t *old_st, int d,
+		uint8_t sb[][16], uint8_t *mc_tab[][16])
+{
+	uint32_t mc_col;
+	int i, j, k;
+
+	for (i = 0; i < AES_NB; i++) {
+		for (j = 0; j < 4; j++) {
+			/* Shift amount simplified for AES. */
+			if (d == 1) {
+				k = i - j;
+				if (k < 0)
+					k += AES_NB;
+			} else if (d == -1) {
+				k = i + j;
+				if (k >= AES_NB)
+					k -= AES_NB;
+			}
+
+			if (mc_tab) {
+				mc_col = *((uint32_t *)mixcol_tab_lookup(mc_tab,
+						old_st[(i << 2) + j]));
+				mc_col = rotate_left_32(mc_col, j << 3);
+				*((uint32_t *)(new_st + (k << 2))) ^= mc_col;
+			} else {
+				new_st[(k << 2) + j] ^= sbox_lookup(sb, old_st[(i << 2) + j]);
+			}
+		}
+	}
+}
+
 void _AES_transform(void *_in, void *_out, int d, _AES_KEY *key)
 {
 	uint8_t *in = (uint8_t *)_in;
-	uint8_t *out = (uint8_t *)_out;
+	uint8_t *new_st, *old_st, tmp[_AES_BLOCK_SIZE], *c_ptr;
 	uint8_t *rd_key;
 	uint8_t (*sb)[16], *(*mc_tab)[16];
 	int i;
@@ -887,18 +888,30 @@ void _AES_transform(void *_in, void *_out, int d, _AES_KEY *key)
 		rd_key = key->inv_rd_key;
 	}
 
-	for (i = 0; i < _AES_BLOCK_SIZE; i++)
-		out[i] = in[i];
-
-	state_xor(out, rd_key);
-	rd_key += _AES_BLOCK_SIZE;
-	for (i = 1; i < key->rounds; i++) {
-		transform_round(out, d, sb, mc_tab);
-		state_xor(out, rd_key);
-		rd_key += _AES_BLOCK_SIZE;
+	if (key->rounds & 0x1) {
+		old_st = tmp;
+		new_st = (uint8_t *)_out;
+	} else {
+		old_st = (uint8_t *)_out;
+		new_st = tmp;
 	}
-	transform_round(out, d, sb, NULL);
-	state_xor(out, rd_key);
+
+	for (i = 0; i < _AES_BLOCK_SIZE; i++)
+		old_st[i] = in[i] ^ rd_key[i];
+	rd_key += _AES_BLOCK_SIZE;
+
+	for (i = 1; i < key->rounds; i++) {
+		memcpy(new_st, rd_key, _AES_BLOCK_SIZE);
+		transform_round(new_st, old_st, d, sb, mc_tab);
+
+		rd_key += _AES_BLOCK_SIZE;
+		c_ptr = new_st;
+		new_st = old_st;
+		old_st = c_ptr;
+	}
+
+	memcpy(new_st, rd_key, _AES_BLOCK_SIZE);
+	transform_round(new_st, old_st, d, sb, NULL);
 }
 
 void _AES_encrypt(void *in, void *out, _AES_KEY *key)
