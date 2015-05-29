@@ -1,5 +1,9 @@
-all: aes.c
-	gcc aes.c -lcrypto -o aes
+HDR=aes.h util.h
+SRC=aes.c util.c test.c
+CLEAN=a.out aes
+
+all: $(HDR) $(SRC)
+	gcc $(SRC) -lcrypto -o aes
 
 clean:
-	rm -f a.out aes
+	rm -f $(CLEAN)

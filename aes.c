@@ -1,55 +1,16 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
-#include <openssl/aes.h>
-#include <openssl/sha.h>
+#include "aes.h"
+#include "util.h"
 
-#define CEIL(x, y)  (int)((x + (y - 1)) / (y))
-
-#define ROTL32(n, m)  do { \
-		asm ( \
-			"roll %1, %0\n\t" \
-			: "=r"(n) \
-			: "I"(m), "0"(n) \
-		); \
-	} while (0)
-
-void hex_dump(uint8_t buf[], int len)
-{
-	int i;
-
-	for (i = 1; i <= len; i++) {
-		printf("%02x", buf[i - 1]);
-		if (i % 32 == 0)
-			printf("\n");
-		else if (i % 4 == 0)
-			printf(" ");
-	}
-
-	if ((i - 1) % 32 != 0)
-		printf("\n");
-	printf("\n");
-}
-
-#define AES_NB  4
-#define MAX_NK  8
-#define MAX_NR  14
-
-#define _AES_BLOCK_SIZE  (AES_NB << 2)
-
-typedef struct {
-	uint8_t rd_key[(MAX_NR + 1) * AES_NB * 4];
-	uint8_t inv_rd_key[(MAX_NR + 1) * AES_NB * 4];
-	int rounds;
-} _AES_KEY;
-
-uint8_t c_i[32] = {
+static uint8_t c_i[32] = {
 		"\x00\x01\x02\x04\x08\x10\x20\x40\x80\x1b\x36"
 		"\x6c\xd8\xab\x4d\x9a\x2f\x5e\xbc\x63\xc6"
 		"\x97\x35\x6a\xd4\xb3\x7d\xfa\xef\xc5\x91"
 	};
 
-uint8_t sbox[][16] = {
+static uint8_t sbox[][16] = {
 		"\x63\x7c\x77\x7b\xf2\x6b\x6f\xc5\x30\x01\x67\x2b\xfe\xd7\xab\x76",
 		"\xca\x82\xc9\x7d\xfa\x59\x47\xf0\xad\xd4\xa2\xaf\x9c\xa4\x72\xc0",
 		"\xb7\xfd\x93\x26\x36\x3f\xf7\xcc\x34\xa5\xe5\xf1\x71\xd8\x31\x15",
@@ -68,7 +29,7 @@ uint8_t sbox[][16] = {
 		"\x8c\xa1\x89\x0d\xbf\xe6\x42\x68\x41\x99\x2d\x0f\xb0\x54\xbb\x16"
 	};
 
-uint8_t inv_sbox[][16] = {
+static uint8_t inv_sbox[][16] = {
 		"\x52\x09\x6a\xd5\x30\x36\xa5\x38\xbf\x40\xa3\x9e\x81\xf3\xd7\xfb",
 		"\x7c\xe3\x39\x82\x9b\x2f\xff\x87\x34\x8e\x43\x44\xc4\xde\xe9\xcb",
 		"\x54\x7b\x94\x32\xa6\xc2\x23\x3d\xee\x4c\x95\x0b\x42\xfa\xc3\x4e",
@@ -87,7 +48,7 @@ uint8_t inv_sbox[][16] = {
 		"\x17\x2b\x04\x7e\xba\x77\xd6\x26\xe1\x69\x14\x63\x55\x21\x0c\x7d"
 	};
 
-uint8_t *mixcol_tab[][16] = {
+static uint8_t *mixcol_tab[][16] = {
 		{
 			"\x00\x00\x00\x00", "\x02\x01\x01\x03",
 			"\x04\x02\x02\x06", "\x06\x03\x03\x05",
@@ -250,7 +211,7 @@ uint8_t *mixcol_tab[][16] = {
 		},
 	};
 
-uint8_t *inv_mixcol_tab[][16] = {
+static uint8_t *inv_mixcol_tab[][16] = {
 		{
 			"\x00\x00\x00\x00", "\x0e\x09\x0d\x0b",
 			"\x1c\x12\x1a\x16", "\x12\x1b\x17\x1d",
@@ -413,7 +374,7 @@ uint8_t *inv_mixcol_tab[][16] = {
 		},
 	};
 
-uint8_t *comb_mixcol_tab[][16] = {
+static uint8_t *comb_mixcol_tab[][16] = {
 		{
 			"\xc6\x63\x63\xa5", "\xf8\x7c\x7c\x84",
 			"\xee\x77\x77\x99", "\xf6\x7b\x7b\x8d",
@@ -576,7 +537,7 @@ uint8_t *comb_mixcol_tab[][16] = {
 		},
 	};
 
-uint8_t *comb_inv_mixcol_tab[][16] = {
+static uint8_t *comb_inv_mixcol_tab[][16] = {
 		{
 			"\x51\xf4\xa7\x50", "\x7e\x41\x65\x53",
 			"\x1a\x17\xa4\xc3", "\x3a\x27\x5e\x96",
@@ -739,18 +700,18 @@ uint8_t *comb_inv_mixcol_tab[][16] = {
 		},
 	};
 
-inline uint8_t sbox_lookup(uint8_t sbox[][16], uint8_t c)
+static inline uint8_t sbox_lookup(uint8_t sbox[][16], uint8_t c)
 {
 	return sbox[(c >> 4) & 0xf][(c >> 0) & 0xf];
 }
 
-inline uint8_t *mixcol_tab_lookup(
+static inline uint8_t *mixcol_tab_lookup(
 		uint8_t *mc_tab[][16], uint8_t c)
 {
 	return mc_tab[(c >> 4) & 0xf][(c >> 0) & 0xf];
 }
 
-void mix_column(uint8_t *mc_tab[][16], uint8_t *col)
+static void mix_column(uint8_t *mc_tab[][16], uint8_t *col)
 {
 	uint32_t mc_col, res = 0;
 
@@ -835,7 +796,7 @@ void expand_key(_AES_KEY *key, void *_init_key, int bits)
 			mix_column(inv_mixcol_tab, inv_rd_key + (i * _AES_BLOCK_SIZE) + j);
 }
 
-void transform_round(uint8_t *new_st, uint8_t *old_st, int d,
+static void transform_round(uint8_t *new_st, uint8_t *old_st, int d,
 		uint8_t sb[][16], uint8_t *mc_tab[][16])
 {
 	uint32_t mc_col;
@@ -885,7 +846,7 @@ void transform_round(uint8_t *new_st, uint8_t *old_st, int d,
 	}
 }
 
-void _AES_transform(void *_in, void *_out, int d, _AES_KEY *key)
+static void _AES_transform(void *_in, void *_out, int d, _AES_KEY *key)
 {
 	uint8_t *in = (uint8_t *)_in;
 	uint8_t *new_st, *old_st, tmp[_AES_BLOCK_SIZE], *c_ptr;
@@ -937,75 +898,5 @@ void _AES_encrypt(void *in, void *out, _AES_KEY *key)
 void _AES_decrypt(void *in, void *out, _AES_KEY *key)
 {
 	_AES_transform(in, out, -1, key);
-}
-
-#define KEY  "hello world!"
-#define BITS  256
-
-#include <sys/time.h>
-
-void print_elapsed_time(struct timeval *tv_start, struct timeval *tv_end)
-{
-	long sec, usec;
-
-	sec = tv_end->tv_sec - tv_start->tv_sec;
-	usec = tv_end->tv_usec - tv_start->tv_usec;
-	usec += sec * 1000000;
-	printf("[*]: %ld\n", usec);
-}
-
-int main()
-{
-	SHA256_CTX md_ctx;
-	AES_KEY key;
-	_AES_KEY _key;
-	uint8_t buf[64], nb[32], enb[32];
-	int i, len;
-	int nk = BITS >> 5, nr = 6 + nk, key_nb = (nr + 1) * AES_NB * 4;
-	struct timeval tv_start, tv_end;
-
-	for (len = 0; len < 64; len += 32) {
-		SHA256_Init(&md_ctx);
-		if (len == 0) {
-			SHA256_Update(&md_ctx, KEY, strlen(KEY));
-			SHA256_Final(buf, &md_ctx);
-		} else {
-			SHA256_Update(&md_ctx, buf + len - 32, 32);
-			SHA256_Update(&md_ctx, KEY, strlen(KEY));
-			SHA256_Final(buf + len, &md_ctx);
-		}
-	}
-
-	for (i = 0; i < 32; i++)
-		nb[i] = '\0';
-
-
-	AES_set_encrypt_key(buf, BITS, &key);
-	hex_dump((uint8_t *)key.rd_key, key_nb);
-
-	gettimeofday(&tv_start, NULL);
-	for (i = 0; i < 1024; i++)
-		AES_encrypt(nb, enb, &key);
-	gettimeofday(&tv_end, NULL);
-	print_elapsed_time(&tv_start, &tv_end);
-	hex_dump(enb, 16);
-
-
-	expand_key(&_key, buf, BITS);
-	hex_dump(_key.rd_key, key_nb);
-
-	gettimeofday(&tv_start, NULL);
-	for (i = 0; i < 1024; i++)
-		_AES_encrypt(nb, enb, &_key);
-	gettimeofday(&tv_end, NULL);
-	print_elapsed_time(&tv_start, &tv_end);
-	hex_dump(enb, 16);
-
-	for (i = 0; i < 32; i++)
-		nb[i] = enb[i];
-	_AES_decrypt(nb, enb, &_key);
-	hex_dump(enb, 16);
-
-	return 0;
 }
 
