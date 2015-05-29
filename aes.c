@@ -6,6 +6,14 @@
 
 #define CEIL(x, y)  (int)((x + (y - 1)) / (y))
 
+#define ROTL32(n, m)  do { \
+		asm ( \
+			"roll %1, %0\n\t" \
+			: "=r"(n) \
+			: "I"(m), "0"(n) \
+		); \
+	} while (0)
+
 void hex_dump(uint8_t buf[], int len)
 {
 	int i;
@@ -742,30 +750,28 @@ inline uint8_t *mixcol_tab_lookup(
 	return mc_tab[(c >> 4) & 0xf][(c >> 0) & 0xf];
 }
 
-inline uint32_t rotate_left_32(uint32_t n, int m)
-{
-	uint32_t mask = (1 << m) - 1;
-	uint32_t tmp;
-
-	tmp = (n >> (32 - m)) & mask;
-	n <<= m;
-	n |= tmp;
-
-	return n;
-}
-
 void mix_column(uint8_t *mc_tab[][16], uint8_t *col)
 {
-	uint32_t mc_col[4], tmp;
-	int i, j, idx;
+	uint32_t mc_col, res = 0;
 
-	for (i = 0; i < 4; i++) {
-		tmp = *((uint32_t *)mixcol_tab_lookup(mc_tab, col[i]));
-		mc_col[i] = rotate_left_32(tmp, i << 3);
-		col[i] = '\0';
-	}
-	for (i = 0; i < 4; i++)
-		*((uint32_t *)col) ^= mc_col[i];
+	/* Byte 0. */
+	mc_col = *((uint32_t *)mixcol_tab_lookup(mc_tab, col[0]));
+	ROTL32(mc_col, 0);
+	res ^= mc_col;
+	/* Byte 1. */
+	mc_col = *((uint32_t *)mixcol_tab_lookup(mc_tab, col[1]));
+	ROTL32(mc_col, 8);
+	res ^= mc_col;
+	/* Byte 2. */
+	mc_col = *((uint32_t *)mixcol_tab_lookup(mc_tab, col[2]));
+	ROTL32(mc_col, 16);
+	res ^= mc_col;
+	/* Byte 3. */
+	mc_col = *((uint32_t *)mixcol_tab_lookup(mc_tab, col[3]));
+	ROTL32(mc_col, 24);
+	res ^= mc_col;
+
+	*((uint32_t *)col) = res;
 }
 
 void expand_key(_AES_KEY *key, void *_init_key, int bits)
@@ -829,43 +835,52 @@ void expand_key(_AES_KEY *key, void *_init_key, int bits)
 			mix_column(inv_mixcol_tab, inv_rd_key + (i * _AES_BLOCK_SIZE) + j);
 }
 
-inline void state_xor(uint8_t *state, uint8_t *rd_key)
-{
-	uint32_t *dest = (uint32_t *)state;
-	uint32_t *src = (uint32_t *)rd_key;
-	int i;
-
-	for (i = 0; i < _AES_BLOCK_SIZE; i += 4)
-		*dest++ ^= *src++;
-}
-
 void transform_round(uint8_t *new_st, uint8_t *old_st, int d,
 		uint8_t sb[][16], uint8_t *mc_tab[][16])
 {
 	uint32_t mc_col;
-	int i, j, k;
+	int col_idx[4];
+	int i, base, j, k;
 
 	for (i = 0; i < AES_NB; i++) {
-		for (j = 0; j < 4; j++) {
-			/* Shift amount simplified for AES. */
-			if (d == 1) {
-				k = i - j;
-				if (k < 0)
-					k += AES_NB;
-			} else if (d == -1) {
-				k = i + j;
-				if (k >= AES_NB)
-					k -= AES_NB;
+		/* Shift amount simplified for AES. */
+		if (d == 1) {
+			for (j = 0; j < 4; j++) {
+				col_idx[j] = (i < j) ? i - j + AES_NB : i - j;
+				col_idx[j] <<= 2;
 			}
+		} else if (d == -1) {
+			for (j = 0; j < 4; j++) {
+				col_idx[j] = (i + j >= AES_NB) ? i + j - AES_NB : i + j;
+				col_idx[j] <<= 2;
+			}
+		}
 
-			if (mc_tab) {
-				mc_col = *((uint32_t *)mixcol_tab_lookup(mc_tab,
-						old_st[(i << 2) + j]));
-				mc_col = rotate_left_32(mc_col, j << 3);
-				*((uint32_t *)(new_st + (k << 2))) ^= mc_col;
-			} else {
-				new_st[(k << 2) + j] ^= sbox_lookup(sb, old_st[(i << 2) + j]);
-			}
+		base = i << 2;
+		if (mc_tab) {
+			/* Byte 0. */
+			mc_col = *((uint32_t *)mixcol_tab_lookup(
+					mc_tab, old_st[base + 0]));
+			ROTL32(mc_col, 0);
+			*((uint32_t *)(new_st + col_idx[0])) ^= mc_col;
+			/* Byte 1. */
+			mc_col = *((uint32_t *)mixcol_tab_lookup(
+					mc_tab, old_st[base + 1]));
+			ROTL32(mc_col, 8);
+			*((uint32_t *)(new_st + col_idx[1])) ^= mc_col;
+			/* Byte 2. */
+			mc_col = *((uint32_t *)mixcol_tab_lookup(
+					mc_tab, old_st[base + 2]));
+			ROTL32(mc_col, 16);
+			*((uint32_t *)(new_st + col_idx[2])) ^= mc_col;
+			/* Byte 3. */
+			mc_col = *((uint32_t *)mixcol_tab_lookup(
+					mc_tab, old_st[base + 3]));
+			ROTL32(mc_col, 24);
+			*((uint32_t *)(new_st + col_idx[3])) ^= mc_col;
+		} else {
+			for (j = 0; j < 4; j++)
+				new_st[col_idx[j] + j] ^= sbox_lookup(sb, old_st[base + j]);
 		}
 	}
 }
