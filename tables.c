@@ -470,6 +470,21 @@ void generate_mixcol_tab(int inv)
 	printf("\t};\n");
 }
 
+void generate_comb_mixcol_tab_row(uint8_t *col)
+{
+	int i = 0, j;
+	
+	printf("\"");
+	do {
+		for (j = 0; j < 4; j++)
+			printf("\\x%02x", col[(i + j) & 0x3]);
+		i = (i - 1) & 0x3;
+		if (i == 2)
+			printf("\"\n\t\t\t\t\"");
+	} while (i != 0);
+	printf("\"");
+}
+
 void generate_comb_mixcol_tab(int inv)
 {
 	uint8_t *col;
@@ -491,12 +506,10 @@ void generate_comb_mixcol_tab(int inv)
 		for (j = 0; j < 16; j += 2) {
 			printf("\t\t\t");
 			col = mixcol_tab_lookup(mc_tab, sbox_lookup(sb, (i << 4) + j));
-			printf("\"\\x%02x\\x%02x\\x%02x\\x%02x\"",
-					col[0], col[1], col[2], col[3]);
-			printf(", ");
+			generate_comb_mixcol_tab_row(col);
+			printf(",\n\t\t\t");
 			col = mixcol_tab_lookup(mc_tab, sbox_lookup(sb, (i << 4) + j + 1));
-			printf("\"\\x%02x\\x%02x\\x%02x\\x%02x\"",
-					col[0], col[1], col[2], col[3]);
+			generate_comb_mixcol_tab_row(col);
 			printf(",\n");
 		}
 		printf("\t\t},\n");

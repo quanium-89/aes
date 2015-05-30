@@ -79,30 +79,41 @@ int main()
 	}
 
 	while (!feof(fp)) {
-		fread(nb, 1, _AES_BLOCK_SIZE, fp);
+		if (fread(nb, 1, _AES_BLOCK_SIZE, fp) == 0) {
+			fprintf(stderr, "Failed in call to fread()\n");
+			exit(-1);
+		}
 	}
 
-	i = 0;
 	fseek(fp, 0, SEEK_SET);
+	i = 0;
+	gettimeofday(&tv_start, NULL);
 	while (!feof(fp)) {
 		++i;
-		if ((i & 0xffffff) == 0)
-			printf("[*] 1: 256MB\n");
-		fread(nb, 1, _AES_BLOCK_SIZE, fp);
+		if (fread(nb, 1, _AES_BLOCK_SIZE, fp) == 0) {
+			fprintf(stderr, "Failed in call to fread()\n");
+			exit(-1);
+		}
 		AES_encrypt(nb, enb, &key);
 	}
-	printf("%d\n", i);
+	gettimeofday(&tv_end, NULL);
+	print_elapsed_time(&tv_start, &tv_end);
+	printf("blocks = %d\n", i);
 
-	i = 0;
 	fseek(fp, 0, SEEK_SET);
+	i = 0;
+	gettimeofday(&tv_start, NULL);
 	while (!feof(fp)) {
 		++i;
-		if ((i & 0xfffff) == 0)
-			printf("[*] 2: 16MB\n");
-		fread(nb, 1, _AES_BLOCK_SIZE, fp);
+		if (fread(nb, 1, _AES_BLOCK_SIZE, fp) == 0) {
+			fprintf(stderr, "Failed in call to fread()\n");
+			exit(-1);
+		}
 		_AES_encrypt(nb, enb, &_key);
 	}
-	printf("%d\n", i);
+	gettimeofday(&tv_end, NULL);
+	print_elapsed_time(&tv_start, &tv_end);
+	printf("blocks = %d\n", i);
 
 	fclose(fp);
 
