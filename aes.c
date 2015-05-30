@@ -1914,7 +1914,7 @@ static inline void transform_round(uint8_t *new_st, uint8_t *old_st, int d,
 {
 	uint32_t mc_col;
 	int (*col_idx)[4];
-	int i, base, j, k;
+	int i, base, j;
 
 	if (d == 1)
 		col_idx = shift_tab;
@@ -1993,13 +1993,37 @@ static void _AES_transform(void *_in, void *_out, int d, _AES_KEY *key)
 	transform_round(new_st, old_st, d, sb, NULL);
 }
 
-void _AES_encrypt(void *in, void *out, _AES_KEY *key)
+void _AES_ecb_encrypt(void *in, void *out, _AES_CTX *ctx)
 {
-	_AES_transform(in, out, 1, key);
+	_AES_transform(in, out, 1, &(ctx->key));
 }
 
-void _AES_decrypt(void *in, void *out, _AES_KEY *key)
+void _AES_ecb_decrypt(void *in, void *out, _AES_CTX *ctx)
 {
-	_AES_transform(in, out, -1, key);
+	_AES_transform(in, out, -1, &(ctx->key));
+}
+
+void _AES_cbc_encrypt(void *_in, void *_out, _AES_CTX *ctx)
+{
+	uint32_t *in = (uint32_t *)_in;
+	uint32_t *ivec = (uint32_t *)(ctx->ivec);
+	int i;
+
+	for (i = 0; i < AES_NB; i++)
+		*in++ ^= *ivec++;
+	_AES_transform(_in, _out, 1, &(ctx->key));
+	memcpy(ctx->ivec, _out, _AES_BLOCK_SIZE);
+}
+
+void _AES_cbc_decrypt(void *_in, void *_out, _AES_CTX *ctx)
+{
+	uint32_t *out = (uint32_t *)_out;
+	uint32_t *ivec = (uint32_t *)(ctx->ivec);
+	int i;
+
+	_AES_transform(_in, _out, -1, &(ctx->key));
+	for (i = 0; i < AES_NB; i++)
+		*out++ ^= *ivec++;
+	memcpy(ctx->ivec, _in, _AES_BLOCK_SIZE);
 }
 

@@ -15,8 +15,19 @@ typedef struct {
 	int rounds;
 } _AES_KEY;
 
+typedef struct aes_st {
+	_AES_KEY key;
+	uint8_t ivec[_AES_BLOCK_SIZE];
+	void (*encrypt)(void *in, void *out, struct aes_st *ctx);
+	void (*decrypt)(void *in, void *out, struct aes_st *ctx);
+} _AES_CTX;
+
+
 void expand_key(_AES_KEY *key, void *_init_key, int bits);
-void _AES_encrypt(void *in, void *out, _AES_KEY *key);
-void _AES_encrypt(void *in, void *out, _AES_KEY *key);
+
+void _AES_ecb_encrypt(void *in, void *out, _AES_CTX *ctx);
+void _AES_ecb_decrypt(void *in, void *out, _AES_CTX *ctx);
+void _AES_cbc_encrypt(void *in, void *out, _AES_CTX *ctx);
+void _AES_cbc_decrypt(void *in, void *out, _AES_CTX *ctx);
 
 #endif
