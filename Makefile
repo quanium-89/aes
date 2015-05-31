@@ -1,9 +1,15 @@
 HDR=aes.h util.h
-SRC=aes.c util.c test.c
-CLEAN=a.out aes
+SRC=aes.c util.c
+CLEAN=test a.out *.o *.a
 
-all: $(HDR) $(SRC)
-	gcc $(SRC) -lcrypto -o aes -O3
+all: lib
+
+lib: $(HDR) $(SRC)
+	gcc -c $(SRC) -O3
+	ar -cvq libcrypt.a *.o
+
+test: lib
+	gcc test.c -lcrypto -L./ -lcrypt -o test
 
 clean:
 	rm -f $(CLEAN)
